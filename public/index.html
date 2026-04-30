@@ -529,8 +529,15 @@
     themeBtn.classList.add(savedTheme === 'dark' ? 'dark' : 'light');
 
     var savedSidebarState = localStorage.getItem('sidebarOpen');
-    if (savedSidebarState === 'true') { sidebar.classList.add('open'); }
-    else { sidebar.classList.add('closed'); document.body.classList.add('sidebar-closed'); }
+    var isMobile = window.innerWidth <= 768;
+    if (savedSidebarState === 'true' || isMobile) {
+      sidebar.classList.add('open');
+      sidebar.classList.remove('closed');
+    } else {
+      sidebar.classList.add('closed');
+      sidebar.classList.remove('open');
+      document.body.classList.add('sidebar-closed');
+    }
 
     themeBtn.addEventListener('click', function() {
       var html = document.documentElement;
