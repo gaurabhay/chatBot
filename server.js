@@ -1,13 +1,14 @@
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
-const fs = require('fs');
-const path = require('path');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 // Load .env file
 require('dotenv').config();
 
 const API_KEY = process.env.ANTHROPIC_API_KEY;
+const JWT_SECRET = process.env.JWT_SECRET || 'chatbot-secret-key-2024';
 console.log('API Key loaded:', API_KEY ? 'Yes - ' + API_KEY.substring(0, 15) + '...' : 'No');
 
 const app = express();
@@ -27,6 +28,7 @@ app.use(express.static('public'));
 
 // Message schema - stores each individual message
 const messageSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   chatId: { type: String, required: true },
   role: { type: String, enum: ['user', 'assistant'], required: true },
   content: { type: String, required: true },
@@ -35,20 +37,127 @@ const messageSchema = new mongoose.Schema({
 
 // Chat session schema - stores chat metadata
 const chatSchema = new mongoose.Schema({
-  chatId: { type: String, required: true, unique: true },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  chatId: { type: String, required: true },
   title: { type: String, default: 'New Chat' },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });
 
+// Compound index for user-specific queries
+chatSchema.index({ userId: 1, chatId: 1 }, { unique: true });
+messageSchema.index({ userId: 1, chatId: 1 });
+
 // Create models
 const Message = mongoose.model('Message', messageSchema);
 const Chat = mongoose.model('Chat', chatSchema);
 
-// ==================== API ROUTES ====================
+// ==================== USER MODEL ====================
+const userSchema = new mongoose.Schema({
+  email: { type: String, required: true, unique: true, lowercase: true },
+  password: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now }
+});
+const User = mongoose.model('User', userSchema);
+
+// ==================== AUTH MIDDLEWARE ====================
+const authMiddleware = (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) {
+    return res.status(401).json({ error: 'No token provided' });
+  }
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.userId = decoded.userId;
+    next();
+  } catch (error) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+};
+
+// ==================== AUTH ROUTES ====================
+
+// POST /api/auth/register
+app.post('/api/auth/register', async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  }
+
+  try {
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ error: 'Email already registered' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = await User.create({ email, password: hashedPassword });
+
+    const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '7d' });
+
+    res.json({
+      token,
+      user: { email: user.email, id: user._id }
+    });
+  } catch (error) {
+    console.error('Register error:', error.message);
+    res.status(500).json({ error: 'Failed to register' });
+  }
+});
+
+// POST /api/auth/login
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+
+  try {
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid email or password' });
+    }
+
+    const isValid = await bcrypt.compare(password, user.password);
+    if (!isValid) {
+      return res.status(400).json({ error: 'Invalid email or password' });
+    }
+
+    const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '7d' });
+
+    res.json({
+      token,
+      user: { email: user.email, id: user._id }
+    });
+  } catch (error) {
+    console.error('Login error:', error.message);
+    res.status(500).json({ error: 'Failed to login' });
+  }
+});
+
+// GET /api/auth/me - Get current user
+app.get('/api/auth/me', authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId).select('-password');
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json({ user: { email: user.email, id: user._id } });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get user' });
+  }
+});
+
+// ==================== API ROUTES (Protected) ====================
 
 // 1. POST /api/chat - Send message and store response
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', authMiddleware, async (req, res) => {
   const { message, chatId } = req.body;
 
   if (!message) {
@@ -59,8 +168,8 @@ app.post('/api/chat', async (req, res) => {
   const currentChatId = chatId || 'chat_' + Date.now();
 
   try {
-    // Get previous messages for context
-    const previousMessages = await Message.find({ chatId: currentChatId })
+    // Get previous messages for context (user-specific)
+    const previousMessages = await Message.find({ userId: req.userId, chatId: currentChatId })
       .sort({ createdAt: 1 })
       .lean();
 
@@ -111,6 +220,7 @@ app.post('/api/chat', async (req, res) => {
     const assistantMessage = data.choices[0].message?.content || "No reply";
     // Save user message to database
     await Message.create({
+      userId: req.userId,
       chatId: currentChatId,
       role: 'user',
       content: message
@@ -118,6 +228,7 @@ app.post('/api/chat', async (req, res) => {
 
     // Save assistant message to database
     await Message.create({
+      userId: req.userId,
       chatId: currentChatId,
       role: 'assistant',
       content: assistantMessage
@@ -125,7 +236,7 @@ app.post('/api/chat', async (req, res) => {
 
     // Update chat timestamp
     await Chat.findOneAndUpdate(
-      { chatId: currentChatId },
+      { userId: req.userId, chatId: currentChatId },
       { updatedAt: Date.now() },
       { upsert: true }
     );
@@ -141,11 +252,11 @@ app.post('/api/chat', async (req, res) => {
 });
 
 // 2. GET /api/messages/:chatId - Fetch chat history
-app.get('/api/messages/:chatId', async (req, res) => {
+app.get('/api/messages/:chatId', authMiddleware, async (req, res) => {
   const { chatId } = req.params;
 
   try {
-    const messages = await Message.find({ chatId })
+    const messages = await Message.find({ userId: req.userId, chatId })
       .sort({ createdAt: 1 })
       .select('role content createdAt');
 
@@ -157,16 +268,16 @@ app.get('/api/messages/:chatId', async (req, res) => {
 });
 
 // GET /api/chats - List all chat sessions with first message preview
-app.get('/api/chats', async (req, res) => {
+app.get('/api/chats', authMiddleware, async (req, res) => {
   try {
-    const chats = await Chat.find()
+    const chats = await Chat.find({ userId: req.userId })
       .sort({ updatedAt: -1 })
       .limit(20);
 
     // Get first message for each chat as preview
     const chatsWithPreviews = await Promise.all(
       chats.map(async (chat) => {
-        const firstMessage = await Message.findOne({ chatId: chat.chatId })
+        const firstMessage = await Message.findOne({ userId: req.userId, chatId: chat.chatId })
           .sort({ createdAt: 1 })
           .select('content');
         return {
@@ -187,12 +298,12 @@ app.get('/api/chats', async (req, res) => {
 });
 
 // DELETE /api/chat/:chatId - Delete a chat
-app.delete('/api/chat/:chatId', async (req, res) => {
+app.delete('/api/chat/:chatId', authMiddleware, async (req, res) => {
   const { chatId } = req.params;
 
   try {
-    await Message.deleteMany({ chatId });
-    await Chat.deleteOne({ chatId });
+    await Message.deleteMany({ userId: req.userId, chatId });
+    await Chat.deleteOne({ userId: req.userId, chatId });
 
     res.json({ success: true });
   } catch (error) {
@@ -202,10 +313,10 @@ app.delete('/api/chat/:chatId', async (req, res) => {
 });
 
 // DELETE /api/chats - Delete all chats
-app.delete('/api/chats', async (req, res) => {
+app.delete('/api/chats', authMiddleware, async (req, res) => {
   try {
-    await Message.deleteMany({});
-    await Chat.deleteMany({});
+    await Message.deleteMany({ userId: req.userId });
+    await Chat.deleteMany({ userId: req.userId });
 
     res.json({ success: true });
   } catch (error) {

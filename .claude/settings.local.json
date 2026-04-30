@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm view *)",
+      "Bash(npm install *)",
+      "Bash(npm start *)",
+      "Bash(pkill -f \"node server.js\")",
+      "Bash(taskkill /F /PID 6580)",
+      "Bash(netstat -ano)",
+      "Bash(curl *)",
+      "Bash(taskkill //F //IM node.exe)",
+      "Bash(node *)",
+      "Bash(mongosh --version)",
+      "Bash(where mongod *)",
+      "Bash(nslookup cluster0.z3hnu4q.mongodb.net)",
+      "Bash(taskkill /F /IM node.exe)",
+      "Bash(taskkill *)",
+      "Bash(findstr :3000)",
+      "Bash(PORT=5000 node server.js)",
+      "Bash(powershell *)",
+      "Bash(gh repo *)",
+      "Bash(git remote *)",
+      "Bash(git push *)",
+      "Bash(where gh *)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
+    ]
+  }
+}
