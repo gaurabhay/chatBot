@@ -4,16 +4,8 @@ const mongoose = require('mongoose');
 const fs = require('fs');
 const path = require('path');
 
-// Load .env file manually
-const envPath = path.resolve(__dirname, '.env');
-const envContent = fs.readFileSync(envPath, 'utf8');
-envContent.split('\n').forEach(line => {
-  const trimmed = line.trim();
-  if (trimmed && !trimmed.startsWith('#')) {
-    const [key, ...valueParts] = trimmed.split('=');
-    if (key) process.env[key.trim()] = valueParts.join('=').trim();
-  }
-});
+// Load .env file
+require('dotenv').config();
 
 const API_KEY = process.env.ANTHROPIC_API_KEY;
 console.log('API Key loaded:', API_KEY ? 'Yes - ' + API_KEY.substring(0, 15) + '...' : 'No');
