@@ -218,10 +218,15 @@
 
   <aside class="sidebar closed" id="sidebar">
     <div class="sidebar-header">
-      <button class="new-chat-btn" id="new-chat-btn">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-        New Chat
-      </button>
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <button class="new-chat-btn" id="new-chat-btn">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+          New Chat
+        </button>
+        <button class="sidebar-close-btn" onclick="closeSidebar()" title="Close sidebar" style="background:transparent;border:none;color:var(--text-dim);cursor:pointer;padding:8px;border-radius:8px;">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="20" height="20"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-section-title">
@@ -531,15 +536,11 @@
     themeBtn.classList.add(savedTheme === 'dark' ? 'dark' : 'light');
 
     var savedSidebarState = localStorage.getItem('sidebarOpen');
-    var isMobile = window.innerWidth <= 768;
-    if (savedSidebarState === 'true' || isMobile) {
-      sidebar.classList.add('open');
-      sidebar.classList.remove('closed');
-    } else {
-      sidebar.classList.add('closed');
-      sidebar.classList.remove('open');
-      document.body.classList.add('sidebar-closed');
-    }
+    // Always start with sidebar closed on refresh
+    sidebar.classList.add('closed');
+    sidebar.classList.remove('open');
+    document.body.classList.add('sidebar-closed');
+    localStorage.setItem('sidebarOpen', 'false');
 
     themeBtn.addEventListener('click', function() {
       var html = document.documentElement;
@@ -560,6 +561,11 @@
         document.body.classList.remove('sidebar-closed'); localStorage.setItem('sidebarOpen', 'true');
       }
     });
+
+    window.closeSidebar = function() {
+      sidebar.classList.remove('open'); sidebar.classList.add('closed');
+      document.body.classList.add('sidebar-closed'); localStorage.setItem('sidebarOpen', 'false');
+    };
 
     homeBtn.addEventListener('click', function() {
       currentChatId = 'chat_' + Date.now();
